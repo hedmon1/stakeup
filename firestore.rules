@@ -1,0 +1,187 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    function isSignedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+
+    function groupData(groupId) {
+      return get(/databases/$(database)/documents/groups/$(groupId)).data;
+    }
+    function isGroupMember(groupId) {
+      return isSignedIn() && uid() in groupData(groupId).memberIds;
+    }
+    function isGroupOwner(groupId) {
+      return isSignedIn() && groupData(groupId).ownerId == uid();
+    }
+    function goalParticipants(groupId, goalId) {
+      return get(/databases/$(database)/documents/groups/$(groupId)/goals/$(goalId)).data.participantIds;
+    }
+    // Only these keys changed between the old and new document.
+    function changedOnly(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+    function unchanged(field) {
+      return request.resource.data[field] == resource.data[field];
+    }
+    function isString(v, maxLen) {
+      return v is string && v.size() > 0 && v.size() <= maxLen;
+    }
+
+    // ── Users ──────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      // Profiles are readable by any signed-in user (names/avatars in groups).
+      allow read: if isSignedIn();
+      // You may only write your OWN doc, and only well-formed fields.
+      allow create, update: if isSignedIn() && uid() == userId
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 80
+        && request.resource.data.keys().hasOnly(
+             ['displayName', 'photoURL', 'phone', 'fcmTokens', 'createdAt', 'tutorialSeen']
+           );
+      allow delete: if false;
+    }
+
+    // ── Catalog (shared reward/punishment list) ──────────────────────────────
+    match /catalog/{itemId} {
+      allow read: if isSignedIn();
+      // Auto-seeded by the first client to open an empty catalog. Items are
+      // immutable once written; no deletes.
+      allow create: if isSignedIn()
+        && isString(request.resource.data.title, 120)
+        && request.resource.data.type in ['punishment', 'reward']
+        && request.resource.data.pointsCost is int
+        && request.resource.data.pointsCost >= 0;
+      allow update, delete: if false;
+    }
+
+    // ── Groups ───────────────────────────────────────────────────────────────
+    match /groups/{groupId} {
+      // A signed-in user may fetch a single group by its ID — the random doc ID
+      // doubles as the invite code, so this is how "join by code" looks a group
+      // up. LISTING groups is restricted to ones you belong to: for query rules
+      // the condition must be satisfiable from the candidate doc's own data, so
+      // we check resource.data.memberIds directly (a self-get() does not map to
+      // the array-contains filter and gets the whole query denied).
+      allow get:  if isSignedIn();
+      allow list: if isSignedIn() && uid() in resource.data.memberIds;
+
+      // Create: caller is the owner and is in the member list.
+      allow create: if isSignedIn()
+        && request.resource.data.ownerId == uid()
+        && uid() in request.resource.data.memberIds
+        && isString(request.resource.data.name, 80);
+
+      // Update: ownerId can never change. The owner may edit anything else;
+      // anyone else may ONLY add THEMSELVES to memberIds (joining by code).
+      // NOTE: we must NOT gate this on isGroupMember — a joiner is by definition
+      // not yet a member, so that check would deny every join. The join branch
+      // instead proves the caller adds exactly themselves and removes no one.
+      allow update: if isSignedIn()
+        && unchanged('ownerId')
+        && (
+          isGroupOwner(groupId)
+          || (
+            changedOnly(['memberIds'])
+            && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+            && request.resource.data.memberIds.size() == resource.data.memberIds.size() + 1
+            && uid() in request.resource.data.memberIds
+            && !(uid() in resource.data.memberIds)
+          )
+        );
+
+      allow delete: if isGroupOwner(groupId);
+
+      // ── Members (per-group profile + points) ───────────────────────────────
+      match /members/{memberId} {
+        allow read: if isGroupMember(groupId);
+
+        // Create your OWN member doc with 0 points. Only the group owner may
+        // hold the 'owner' role; everyone else joins as 'member'.
+        allow create: if isSignedIn() && uid() == memberId
+          && request.resource.data.points == 0
+          && (
+            request.resource.data.role == 'member'
+            || (request.resource.data.role == 'owner' && isGroupOwner(groupId))
+          );
+
+        // NOTE: points are mutated client-side today (peer-verified check-ins,
+        // redemptions), so any group member may change the `points` field — but
+        // ONLY that field; role and joinedAt are locked to block privilege
+        // escalation. Move points to a Cloud Function for tamper-proof scoring.
+        allow update: if isGroupMember(groupId)
+          && changedOnly(['points'])
+          && unchanged('role') && unchanged('joinedAt');
+
+        allow delete: if false;
+      }
+
+      // ── Messages (chat + system + cards) ───────────────────────────────────
+      match /messages/{messageId} {
+        allow read: if isGroupMember(groupId);
+        // Chat/cards must be authored by the sender; system messages (welcome,
+        // join, resolution notices) carry no author.
+        allow create: if isGroupMember(groupId) && (
+          request.resource.data.type == 'system'
+          || request.resource.data.authorId == uid()
+        );
+        // Only reactions may be edited after the fact.
+        allow update: if isGroupMember(groupId) && changedOnly(['reactions']);
+        allow delete: if isGroupMember(groupId)
+          && resource.data.authorId == uid();
+      }
+
+      // ── Goals ──────────────────────────────────────────────────────────────
+      match /goals/{goalId} {
+        allow read: if isGroupMember(groupId);
+        allow create: if isGroupMember(groupId)
+          && request.resource.data.proposerId == uid()
+          && request.resource.data.status in ['proposed', 'active'];
+
+        // Participants may approve / advance status, but the economic terms of
+        // a goal (point value, tier, proposer, dates) are frozen after creation.
+        allow update: if isGroupMember(groupId)
+          && uid() in resource.data.participantIds
+          && unchanged('proposerId')
+          && unchanged('pointsPerCheckin')
+          && unchanged('completionBonus')
+          && unchanged('tier')
+          && unchanged('startDate')
+          && unchanged('endDate');
+
+        allow delete: if isGroupMember(groupId)
+          && resource.data.proposerId == uid();
+
+        // ── Check-ins ──────────────────────────────────────────────────────
+        match /checkins/{checkinId} {
+          allow read: if isGroupMember(groupId);
+          // Submit your own check-in (a solo participant auto-verifies it).
+          allow create: if isGroupMember(groupId)
+            && request.resource.data.userId == uid()
+            && uid() in goalParticipants(groupId, goalId)
+            && request.resource.data.status in ['pending', 'verified'];
+          // Peers vote; the submitter can never vote on their own check-in.
+          // The submitter field is immutable.
+          allow update: if isGroupMember(groupId)
+            && uid() != resource.data.userId
+            && unchanged('userId');
+          allow delete: if false;
+        }
+      }
+
+      // ── Redemptions ──────────────────────────────────────────────────────
+      match /redemptions/{redemptionId} {
+        allow read: if isGroupMember(groupId);
+        allow create: if isGroupMember(groupId)
+          && request.resource.data.redeemerId == uid()
+          && request.resource.data.status == 'active';
+        // Members can mark fulfillment, but cost/redeemer are immutable.
+        allow update: if isGroupMember(groupId)
+          && unchanged('redeemerId')
+          && unchanged('pointsCost');
+        allow delete: if false;
+      }
+    }
+  }
+}

@@ -1,0 +1,35 @@
+# Xcode
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.swiftpm/
+
+# Firebase
+GoogleService-Info.plist
+.firebaserc
+service-account.json
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Env / local secrets (keep .env.example tracked as a template)
+.env
+.env.*
+!.env.example
+
+# Expo
+.expo/
+
+# Node
+node_modules/
+lib/
+*.log
+
+# macOS
+.DS_Store

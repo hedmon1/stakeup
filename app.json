@@ -1,0 +1,75 @@
+{
+  "expo": {
+    "name": "StakeUp",
+    "slug": "stakeup",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.stakeup.app",
+      "buildNumber": "1",
+      "usesAppleSignIn": true,
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "NSCameraUsageDescription": "StakeUp uses your camera to submit proof of your check-ins.",
+        "NSPhotoLibraryUsageDescription": "StakeUp accesses your photos so you can set a profile picture and add proof to check-ins."
+      }
+    },
+    "android": {
+      "package": "com.stakeup.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "StakeUp uses your camera to submit check-in proof."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "StakeUp accesses your photos so you can set a profile picture and add check-in proof."
+        }
+      ],
+      "expo-apple-authentication",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/PressStart2P-Regular.ttf",
+            "./assets/fonts/VT323-Regular.ttf"
+          ]
+        }
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/app-check",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ]
+    ],
+    "scheme": "stakeup",
+    "extra": {
+      "eas": {
+        "projectId": "5799fbd6-244a-479f-a29a-47e5303793e6"
+      }
+    },
+    "owner": "coffeeteamilk"
+  }
+}

@@ -1,0 +1,44 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+
+    function isMember(groupId) {
+      return firestore.exists(
+        /databases/(default)/documents/groups/$(groupId)/members/$(uid())
+      );
+    }
+
+    // Stored as profiles/{uid}.jpg — match the whole filename and verify it
+    // belongs to the caller (path-segment wildcards can't carry a .jpg suffix).
+    match /profiles/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+        && fileName == uid() + '.jpg'
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    match /groups/{groupId}/goals/{goalId}/checkins/{userId}/{filename} {
+      allow read: if isMember(groupId);
+      allow write: if isMember(groupId)
+        && uid() == userId
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    match /groups/{groupId}/redemptions/{redemptionId}/{filename} {
+      allow read: if isMember(groupId);
+      allow write: if isMember(groupId)
+        && request.resource.size < 25 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    // Deny everything not explicitly matched above.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
