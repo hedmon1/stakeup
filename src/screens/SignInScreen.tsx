@@ -4,10 +4,11 @@ import {
   KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
+import { AntDesign } from '@expo/vector-icons';
 import { colors, radius, fonts, brutalBtn, onAccent } from '../theme';
 import {
-  signInWithEmail, signUpWithEmail, signInWithApple,
-  sendPasswordReset, isAppleAuthAvailable, authErrorMessage,
+  signInWithEmail, signUpWithEmail, signInWithApple, signInWithGoogle,
+  sendPasswordReset, isAppleAuthAvailable, isGoogleSignInAvailable, authErrorMessage,
 } from '../services/auth';
 
 type Mode = 'signin' | 'signup';
@@ -18,8 +19,10 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('');
   const [loading,  setLoading]  = useState(false);
   const [appleOk,  setAppleOk]  = useState(false);
+  const [googleOk, setGoogleOk] = useState(false);
 
   useEffect(() => { isAppleAuthAvailable().then(setAppleOk); }, []);
+  useEffect(() => { setGoogleOk(isGoogleSignInAvailable()); }, []);
 
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const canSubmit  = emailValid && password.length >= 6 && !loading;
@@ -46,6 +49,18 @@ export default function SignInScreen() {
     } catch (e: any) {
       const msg = authErrorMessage(e);
       if (msg) Alert.alert('Apple sign-in failed', msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogle = async () => {
+    setLoading(true);
+    try {
+      await signInWithGoogle();
+    } catch (e: any) {
+      const msg = authErrorMessage(e);
+      if (msg) Alert.alert('Google sign-in failed', msg);
     } finally {
       setLoading(false);
     }
@@ -118,23 +133,33 @@ export default function SignInScreen() {
           )}
         </View>
 
-        {/* Divider */}
-        {appleOk && (
-          <>
-            <View style={styles.dividerRow}>
-              <View style={styles.divider} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.divider} />
-            </View>
+        {/* Social sign-in */}
+        {(appleOk || googleOk) && (
+          <View style={styles.dividerRow}>
+            <View style={styles.divider} />
+            <Text style={styles.dividerText}>or</Text>
+            <View style={styles.divider} />
+          </View>
+        )}
 
-            <AppleAuthentication.AppleAuthenticationButton
-              buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
-              cornerRadius={radius.button}
-              style={styles.appleBtn}
-              onPress={handleApple}
-            />
-          </>
+        {appleOk && (
+          <AppleAuthentication.AppleAuthenticationButton
+            buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+            buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+            cornerRadius={radius.button}
+            style={styles.appleBtn}
+            onPress={handleApple}
+          />
+        )}
+
+        {googleOk && (
+          <Pressable
+            style={[styles.googleBtn, loading && { opacity: 0.6 }]}
+            onPress={handleGoogle}
+            disabled={loading}>
+            <AntDesign name="google" size={18} color="#1f1f1f" />
+            <Text style={styles.googleBtnText}>Continue with Google</Text>
+          </Pressable>
         )}
 
         {/* Mode toggle */}
@@ -186,6 +211,12 @@ const styles = StyleSheet.create({
   dividerText:{ fontSize: 13, color: colors.tertiary },
 
   appleBtn: { height: 52, width: '100%' },
+  googleBtn: {
+    height: 52, width: '100%', borderRadius: radius.button,
+    backgroundColor: '#fff', flexDirection: 'row',
+    alignItems: 'center', justifyContent: 'center', gap: 10,
+  },
+  googleBtnText: { fontSize: 17, fontWeight: '600', color: '#1f1f1f' },
 
   toggleRow: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
   toggleText: { fontSize: 14, color: colors.secondary },

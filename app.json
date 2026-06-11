@@ -62,6 +62,12 @@
             "useFrameworks": "static"
           }
         }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.346966856911-aodfjumpsuvu3i1g9fkfamgpkut86o2p"
+        }
       ]
     ],
     "scheme": "stakeup",
