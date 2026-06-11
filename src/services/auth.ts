@@ -12,8 +12,13 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import * as AppleAuthentication from 'expo-apple-authentication';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { auth, db } from '../config/firebase';
 import { AppUser } from '../types';
+
+// True when running inside Expo Go, where native modules (Google Sign-In, etc.)
+// are absent and even require()-ing them throws a TurboModule error.
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 
 // ── Email / password ─────────────────────────────────────────────────────────
 export async function signUpWithEmail(email: string, password: string): Promise<string> {
@@ -98,12 +103,19 @@ let _googleResolved = false;
 function loadGoogle(): any {
   if (_googleResolved) return _GoogleSignin;
   _googleResolved = true;
+  // In Expo Go the native module isn't in the binary, and even require()-ing it
+  // throws an uncatchable TurboModule error the dev overlay surfaces — so bail
+  // out before touching it. Google Sign-In only runs in a dev/standalone build.
+  if (isExpoGo) {
+    _GoogleSignin = null;
+    return _GoogleSignin;
+  }
   try {
     const mod = require('@react-native-google-signin/google-signin');
     _GoogleSignin = mod.GoogleSignin;
     _googleStatusCodes = mod.statusCodes;
   } catch {
-    _GoogleSignin = null; // Native module absent (e.g. Expo Go).
+    _GoogleSignin = null; // Native module absent.
   }
   return _GoogleSignin;
 }

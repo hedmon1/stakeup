@@ -182,6 +182,43 @@ service cloud.firestore {
           && unchanged('pointsCost');
         allow delete: if false;
       }
+
+      // ── Custom catalog items (member-proposed reward/punishment) ───────────
+      match /customItems/{itemId} {
+        allow read: if isGroupMember(groupId);
+
+        // Propose: caller is the proposer, fields are well-formed, votes start
+        // empty. Status 'active' is only allowed for a solo group (nobody to vote).
+        allow create: if isGroupMember(groupId)
+          && request.resource.data.proposerId == uid()
+          && isString(request.resource.data.title, 80)
+          && request.resource.data.type in ['punishment', 'reward']
+          && request.resource.data.pointsCost is int
+          && request.resource.data.pointsCost >= 0
+          && request.resource.data.approvals.size() == 0
+          && request.resource.data.rejections.size() == 0
+          && (
+            request.resource.data.status == 'proposed'
+            || (request.resource.data.status == 'active'
+                && groupData(groupId).memberIds.size() == 1)
+          );
+
+        // Vote: any member EXCEPT the proposer may change only the vote/status
+        // fields; the economic terms (cost/title/type) are frozen.
+        allow update: if isGroupMember(groupId)
+          && uid() != resource.data.proposerId
+          && changedOnly(['approvals', 'rejections', 'status'])
+          && unchanged('proposerId')
+          && unchanged('pointsCost')
+          && unchanged('title')
+          && unchanged('type')
+          && unchanged('approvalsNeeded');
+
+        // The proposer may cancel their own still-pending proposal.
+        allow delete: if isGroupMember(groupId)
+          && resource.data.proposerId == uid()
+          && resource.data.status == 'proposed';
+      }
     }
   }
 }

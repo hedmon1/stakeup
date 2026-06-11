@@ -14,6 +14,7 @@ import { useProfiles } from '../hooks/useProfiles';
 import GoalCard from '../components/cards/GoalCard';
 import CheckinCard from '../components/cards/CheckinCard';
 import RedemptionCard from '../components/cards/RedemptionCard';
+import CatalogProposalCard from '../components/cards/CatalogProposalCard';
 import StreakWidget from '../components/StreakWidget';
 import NewGoalModal from './modals/NewGoalModal';
 import CheckinModal from './modals/CheckinModal';
@@ -114,6 +115,12 @@ export default function GroupChatScreen({ navigation, route }: any) {
         return msg.refId && redemptions[msg.refId]
           ? <View style={styles.cardWrap}>
               <RedemptionCard redemption={redemptions[msg.refId]} redeemerName={nameFor(redemptions[msg.refId].redeemerId)} />
+            </View>
+          : null;
+      case 'catalog_proposal':
+        return msg.refId
+          ? <View style={styles.cardWrap}>
+              <CatalogProposalCard proposalId={msg.refId} groupId={group.id} currentUser={currentUser} />
             </View>
           : null;
       default: return null;

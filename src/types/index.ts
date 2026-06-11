@@ -84,7 +84,8 @@ export interface Checkin {
   awardedPoints?: number;
 }
 
-export type MessageType = 'chat' | 'system' | 'goal_card' | 'checkin_card' | 'redemption_card';
+export type MessageType =
+  | 'chat' | 'system' | 'goal_card' | 'checkin_card' | 'redemption_card' | 'catalog_proposal';
 
 export interface ChatMessage {
   id: string;
@@ -106,6 +107,25 @@ export interface CatalogItem {
   type: CatalogType;
   pointsCost: number;
   suggestedProof?: string;
+}
+
+// A member-proposed reward/punishment that the group votes to accept.
+// Lives at /groups/{groupId}/customItems/{id}. status 'active' = approved and
+// usable in that group's Rewards list; 'proposed' = awaiting votes; 'denied' = rejected.
+export type CatalogProposalStatus = 'proposed' | 'active' | 'denied';
+
+export interface CatalogProposal {
+  id: string;
+  title: string;
+  description: string;
+  type: CatalogType;
+  pointsCost: number;
+  proposerId: string;
+  status: CatalogProposalStatus;
+  approvals: string[];
+  rejections: string[];
+  approvalsNeeded: number;
+  createdAt: Date;
 }
 
 export interface Redemption {

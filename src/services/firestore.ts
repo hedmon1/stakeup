@@ -7,7 +7,7 @@ import {
 import { db } from '../config/firebase';
 import {
   FriendGroup, Member, Goal, Checkin, ChatMessage,
-  CatalogItem, Redemption, VoteValue, GoalStatus,
+  CatalogItem, CatalogProposal, CatalogType, Redemption, VoteValue, GoalStatus,
 } from '../types';
 import { CATALOG_SEEDS } from './catalog-seeds';
 
@@ -389,4 +389,119 @@ export async function redeem(
     type: 'redemption_card', authorId: uid,
     refId: redRef.id, createdAt: serverTimestamp(), reactions: {},
   });
+}
+
+// ── Group custom catalog (member-proposed reward/punishment) ──────────────────
+const toCatalogProposal = (id: string, d: any): CatalogProposal => ({
+  id,
+  title: d.title,
+  description: d.description ?? '',
+  type: d.type,
+  pointsCost: d.pointsCost ?? 0,
+  proposerId: d.proposerId,
+  status: d.status ?? 'proposed',
+  approvals: d.approvals ?? [],
+  rejections: d.rejections ?? [],
+  approvalsNeeded: d.approvalsNeeded ?? 1,
+  createdAt: toDate(d.createdAt),
+});
+
+// A member proposes a new reward/punishment. With other members present it posts
+// a catalog_proposal card to chat for majority approval; a solo group adds it now.
+export async function proposeCatalogItem(
+  groupId: string,
+  proposerId: string,
+  memberCount: number,
+  item: { type: CatalogType; title: string; description: string; pointsCost: number }
+): Promise<string> {
+  const others = Math.max(0, memberCount - 1);
+  const approvalsNeeded = others === 0 ? 0 : Math.max(1, Math.ceil(others / 2));
+  const status = approvalsNeeded === 0 ? 'active' : 'proposed';
+
+  const ref = await addDoc(collection(db, 'groups', groupId, 'customItems'), {
+    title: item.title,
+    description: item.description,
+    type: item.type,
+    pointsCost: item.pointsCost,
+    proposerId,
+    status,
+    approvals: [],
+    rejections: [],
+    approvalsNeeded,
+    createdAt: serverTimestamp(),
+  });
+
+  if (status === 'proposed') {
+    await addDoc(collection(db, 'groups', groupId, 'messages'), {
+      type: 'catalog_proposal', authorId: proposerId,
+      refId: ref.id, createdAt: serverTimestamp(), reactions: {},
+    });
+  } else {
+    await addDoc(collection(db, 'groups', groupId, 'messages'), {
+      type: 'system',
+      body: `New ${item.type} "${item.title}" added to the catalog.`,
+      createdAt: serverTimestamp(), reactions: {},
+    });
+  }
+  return ref.id;
+}
+
+// Live single-proposal listener used by the chat approve/deny card.
+export function listenCatalogProposal(
+  groupId: string, itemId: string, cb: (p: CatalogProposal | null) => void
+): Unsubscribe {
+  return onSnapshot(doc(db, 'groups', groupId, 'customItems', itemId), snap =>
+    cb(snap.exists() ? toCatalogProposal(snap.id, snap.data()) : null)
+  );
+}
+
+// Approved (active) custom items for this group — merged into the Rewards list.
+export function listenGroupItems(groupId: string, cb: (items: CatalogItem[]) => void): Unsubscribe {
+  const q = query(collection(db, 'groups', groupId, 'customItems'), where('status', '==', 'active'));
+  return onSnapshot(q, snap => cb(snap.docs.map(d => {
+    const x = d.data();
+    return {
+      id: d.id, title: x.title, description: x.description ?? '',
+      type: x.type, pointsCost: x.pointsCost ?? 0,
+    } as CatalogItem;
+  })));
+}
+
+// A non-proposer member votes; majority approve → item goes active, majority
+// reject → denied. Mirrors the goal/check-in voting pattern.
+export async function voteCatalogProposal(
+  groupId: string, itemId: string, uid: string, vote: VoteValue
+): Promise<void> {
+  const ref = doc(db, 'groups', groupId, 'customItems', itemId);
+  let finalStatus = 'proposed';
+  let title = '';
+  let type = '';
+  await runTransaction(db, async txn => {
+    const snap = await txn.get(ref);
+    if (!snap.exists()) return;
+    const d = snap.data()!;
+    title = d.title; type = d.type;
+    if (d.status !== 'proposed') return;     // already resolved
+    if (d.proposerId === uid) return;        // proposer can't vote on their own
+    const approvals:  string[] = (d.approvals  ?? []).filter((u: string) => u !== uid);
+    const rejections: string[] = (d.rejections ?? []).filter((u: string) => u !== uid);
+    if (vote === 'approve') approvals.push(uid); else rejections.push(uid);
+    const needed = d.approvalsNeeded ?? 1;
+    let status = 'proposed';
+    if (approvals.length >= needed) status = 'active';
+    else if (rejections.length >= needed) status = 'denied';
+    finalStatus = status;
+    txn.update(ref, { approvals, rejections, status });
+  });
+  if (finalStatus === 'active') {
+    await addDoc(collection(db, 'groups', groupId, 'messages'), {
+      type: 'system', body: `New ${type} "${title}" was approved and added to the catalog.`,
+      createdAt: serverTimestamp(), reactions: {},
+    });
+  } else if (finalStatus === 'denied') {
+    await addDoc(collection(db, 'groups', groupId, 'messages'), {
+      type: 'system', body: `Proposed ${type} "${title}" was denied.`,
+      createdAt: serverTimestamp(), reactions: {},
+    });
+  }
 }
