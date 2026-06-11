@@ -11,6 +11,9 @@ import { fetchCatalog, redeem, listenMembers, listenGroupItems, proposeCatalogIt
 type Filter = 'All' | 'Punishments' | 'Rewards';
 const FILTERS: Filter[] = ['All', 'Punishments', 'Rewards'];
 
+// Catalog item with a flag marking it as a group-made (member-proposed) item.
+type ListItem = CatalogItem & { custom?: boolean };
+
 export default function CatalogScreen({ route, navigation }: any) {
   const { group, currentUser, myPoints: initialPoints }: { group: FriendGroup; currentUser: AppUser; myPoints: number } = route.params;
   const [items,    setItems]    = useState<CatalogItem[]>([]);
@@ -51,8 +54,11 @@ export default function CatalogScreen({ route, navigation }: any) {
     });
   }, [group.id, currentUser.id]);
 
-  // Group's custom items first, then the shared defaults.
-  const allItems = useMemo(() => [...groupItems, ...items], [groupItems, items]);
+  // Group's custom items first (flagged), then the shared defaults.
+  const allItems: ListItem[] = useMemo(() => [
+    ...groupItems.map(i => ({ ...i, custom: true })),
+    ...items.map(i => ({ ...i, custom: false })),
+  ], [groupItems, items]);
 
   const visible = allItems.filter(i =>
     filter === 'All' ? true : filter === 'Punishments' ? i.type === 'punishment' : i.type === 'reward'
@@ -97,7 +103,7 @@ export default function CatalogScreen({ route, navigation }: any) {
     }
   };
 
-  const renderItem = ({ item }: { item: CatalogItem }) => {
+  const renderItem = ({ item }: { item: ListItem }) => {
     const canAfford = item.pointsCost <= myPoints;
     const accent = item.type === 'reward' ? colors.purple : colors.orange;
     return (
@@ -109,7 +115,14 @@ export default function CatalogScreen({ route, navigation }: any) {
           <Feather name={item.type === 'reward' ? 'gift' : 'zap'} size={20} color={accent} />
         </View>
         <View style={styles.itemInfo}>
-          <Text style={styles.itemTitle}>{item.title}</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.itemTitle} numberOfLines={1}>{item.title}</Text>
+            {item.custom && (
+              <View style={styles.customBadge}>
+                <Text style={styles.customBadgeText}>CUSTOM</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.itemDesc} numberOfLines={2}>{item.description}</Text>
         </View>
         <Text style={[styles.itemCost, { color: canAfford ? colors.green : colors.tertiary }]}>
@@ -269,7 +282,14 @@ const styles = StyleSheet.create({
   itemPressed: { opacity: 0.7 },
   itemIcon: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   itemInfo: { flex: 1 },
-  itemTitle: { fontSize: 15, fontWeight: '600', color: colors.primary },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  itemTitle: { fontSize: 15, fontWeight: '600', color: colors.primary, flexShrink: 1 },
+  customBadge: {
+    backgroundColor: colors.blue + '22', borderRadius: 6,
+    paddingHorizontal: 6, paddingVertical: 2,
+    borderWidth: 0.5, borderColor: colors.blue + '55',
+  },
+  customBadgeText: { fontSize: 9, fontWeight: '800', color: colors.blue, letterSpacing: 0.5 },
   itemDesc:  { fontSize: 13, color: colors.secondary, marginTop: 2, lineHeight: 17 },
   itemCost:  { fontSize: 15, fontWeight: '700' },
   sep: { height: 8 },
