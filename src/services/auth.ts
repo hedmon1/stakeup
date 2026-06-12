@@ -13,7 +13,7 @@ import {
   deleteUser,
   User,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc, deleteField, arrayUnion, serverTimestamp } from 'firebase/firestore';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { auth, db } from '../config/firebase';
@@ -199,13 +199,16 @@ export async function completeProfile(
     createdAt: new Date(),
     fcmTokens: [],
   };
+  // The public profile doc holds ONLY non-sensitive, group-visible fields.
+  // `fcmTokens: deleteField()` strips the legacy world-readable token field from
+  // any pre-existing doc (push tokens now live in the owner-only subcollection).
   await setDoc(
     doc(db, 'users', uid),
     {
       displayName,
       ...(photoURL ? { photoURL } : {}),
-      fcmTokens: [],
       createdAt: serverTimestamp(),
+      fcmTokens: deleteField(),
     },
     { merge: true }
   );
@@ -213,11 +216,22 @@ export async function completeProfile(
 }
 
 export async function updateUserPhoto(uid: string, photoURL: string): Promise<void> {
-  await setDoc(doc(db, 'users', uid), { photoURL }, { merge: true });
+  await setDoc(doc(db, 'users', uid), { photoURL, fcmTokens: deleteField() }, { merge: true });
 }
 
 export async function markTutorialSeen(uid: string): Promise<void> {
-  await setDoc(doc(db, 'users', uid), { tutorialSeen: true }, { merge: true });
+  await setDoc(doc(db, 'users', uid), { tutorialSeen: true, fcmTokens: deleteField() }, { merge: true });
+}
+
+// Push tokens are PRIVATE — stored in an owner-only subcollection, never the
+// public profile doc (which any signed-in user can read). Call this when you
+// wire up push notifications.
+export async function savePushToken(uid: string, token: string): Promise<void> {
+  await setDoc(
+    doc(db, 'users', uid, 'private', 'push'),
+    { fcmTokens: arrayUnion(token), updatedAt: serverTimestamp() },
+    { merge: true }
+  );
 }
 
 export async function fetchUser(uid: string): Promise<AppUser | null> {

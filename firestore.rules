@@ -34,14 +34,23 @@ service cloud.firestore {
       // Profiles are readable by any signed-in user (names/avatars in groups).
       allow read: if isSignedIn();
       // You may only write your OWN doc, and only well-formed fields.
+      // The PUBLIC profile is world-readable, so it may hold only non-sensitive,
+      // group-visible fields. Phone numbers and push tokens are NOT allowed here
+      // (they live in the owner-only /private subcollection below).
       allow create, update: if isSignedIn() && uid() == userId
         && request.resource.data.displayName is string
         && request.resource.data.displayName.size() <= 80
         && request.resource.data.keys().hasOnly(
-             ['displayName', 'photoURL', 'phone', 'fcmTokens', 'createdAt', 'tutorialSeen']
+             ['displayName', 'photoURL', 'createdAt', 'tutorialSeen']
            );
       // A user may delete ONLY their own profile (account deletion).
       allow delete: if isSignedIn() && uid() == userId;
+
+      // Private, owner-only data (push tokens, phone, etc.). Never readable by
+      // anyone but the owner — unlike the public profile fields above.
+      match /private/{document=**} {
+        allow read, write: if isSignedIn() && uid() == userId;
+      }
     }
 
     // ── Catalog (shared reward/punishment list) ──────────────────────────────
