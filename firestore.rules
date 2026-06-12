@@ -40,7 +40,8 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(
              ['displayName', 'photoURL', 'phone', 'fcmTokens', 'createdAt', 'tutorialSeen']
            );
-      allow delete: if false;
+      // A user may delete ONLY their own profile (account deletion).
+      allow delete: if isSignedIn() && uid() == userId;
     }
 
     // ── Catalog (shared reward/punishment list) ──────────────────────────────

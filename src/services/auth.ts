@@ -7,10 +7,13 @@ import {
   onAuthStateChanged,
   OAuthProvider,
   GoogleAuthProvider,
+  EmailAuthProvider,
   signInWithCredential,
+  reauthenticateWithCredential,
+  deleteUser,
   User,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { auth, db } from '../config/firebase';
@@ -237,6 +240,68 @@ export function signOut() { return fbSignOut(auth); }
 
 export function onAuthChanged(cb: (user: User | null) => void) {
   return onAuthStateChanged(auth, cb);
+}
+
+// ── Account deletion ─────────────────────────────────────────────────────────
+// The signed-in user's primary provider id: 'password' | 'apple.com' |
+// 'google.com' | null. The UI uses this to decide whether to ask for a password.
+export function getAuthProviderId(): string | null {
+  return auth.currentUser?.providerData[0]?.providerId ?? null;
+}
+
+// Firebase blocks account deletion unless the user logged in recently, so we
+// re-confirm identity with a fresh credential before the (irreversible) delete.
+async function reauthenticate(password?: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('You are not signed in.');
+  const providerId = user.providerData[0]?.providerId;
+
+  if (providerId === 'password') {
+    if (!password) {
+      const err: any = new Error('Enter your password to confirm.');
+      err.code = 'app/password-required';
+      throw err;
+    }
+    const cred = EmailAuthProvider.credential(user.email ?? '', password);
+    await reauthenticateWithCredential(user, cred);
+  } else if (providerId === 'apple.com') {
+    const credential = await AppleAuthentication.signInAsync({
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+        AppleAuthentication.AppleAuthenticationScope.EMAIL,
+      ],
+    });
+    if (!credential.identityToken) throw new Error('Apple did not return an identity token.');
+    const provider = new OAuthProvider('apple.com');
+    await reauthenticateWithCredential(user, provider.credential({ idToken: credential.identityToken }));
+  } else if (providerId === 'google.com') {
+    const GS = ensureGoogleConfigured();
+    if (!GS) throw new Error('Google sign-in is unavailable on this build.');
+    const res = await GS.signIn();
+    const idToken = res?.data?.idToken ?? res?.idToken;
+    if (!idToken) {
+      const err: any = new Error('cancelled');
+      err.code = 'ERR_REQUEST_CANCELED';
+      throw err;
+    }
+    await reauthenticateWithCredential(user, GoogleAuthProvider.credential(idToken));
+  } else {
+    throw new Error('Please sign out and back in, then delete your account.');
+  }
+}
+
+// Permanently delete the signed-in user's auth account + profile doc. We always
+// re-authenticate first (confirms identity AND satisfies Firebase's recent-login
+// requirement), then delete the /users doc while still authed, then the account.
+// Group membership docs are left as-is (rules forbid client deletes) — their name
+// simply resolves to "Member" afterward; a Cloud Function can cascade-clean later.
+export async function deleteAccount(password?: string): Promise<void> {
+  if (!auth.currentUser) throw new Error('You are not signed in.');
+  await reauthenticate(password);
+  const user = auth.currentUser;
+  if (!user) throw new Error('You are not signed in.');
+  try { await deleteDoc(doc(db, 'users', user.uid)); } catch {}
+  await deleteUser(user);
 }
 
 // ── Friendly error messages ──────────────────────────────────────────────────

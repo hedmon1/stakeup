@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Pressable, Image, Alert, ActivityIndicator,
+  View, Text, ScrollView, StyleSheet, Pressable, Image, Alert, ActivityIndicator, Platform,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,7 +8,10 @@ import * as ImagePicker from 'expo-image-picker';
 import { colors, radius, GoalTier, tierColor, onAccent } from '../theme';
 import { AppUser, FriendGroup, Member } from '../types';
 import { listenGroups, listenMembers } from '../services/firestore';
-import { signOut, updateUserPhoto, isEmailVerified, resendEmailVerification } from '../services/auth';
+import {
+  signOut, updateUserPhoto, isEmailVerified, resendEmailVerification,
+  deleteAccount, getAuthProviderId, authErrorMessage,
+} from '../services/auth';
 import { uploadProfilePhoto } from '../services/storage';
 
 // ── Stat tile ─────────────────────────────────────────────────────────────────
@@ -122,6 +125,49 @@ export default function ProfileScreen({ route }: any) {
       { text: 'Sign out', style: 'destructive', onPress: signOut },
     ]);
 
+  const [deleting, setDeleting] = useState(false);
+
+  const runDelete = async (password?: string) => {
+    setDeleting(true);
+    try {
+      await deleteAccount(password);
+      // On success the auth listener fires null and navigation returns to sign-in.
+    } catch (e: any) {
+      const msg = authErrorMessage(e);
+      if (msg) Alert.alert('Could not delete account', msg);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const confirmDelete = () => {
+    // Email users must re-enter their password; Apple/Google re-auth via the
+    // provider sheet inside deleteAccount(), so no prompt is needed for them.
+    if (getAuthProviderId() === 'password' && Platform.OS === 'ios') {
+      Alert.prompt(
+        'Confirm your password',
+        'Enter your password to permanently delete your account.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: (pw?: string) => runDelete(pw) },
+        ],
+        'secure-text'
+      );
+    } else {
+      runDelete();
+    }
+  };
+
+  const handleDeleteAccount = () =>
+    Alert.alert(
+      'Delete account',
+      'This permanently deletes your account and profile. Your points and group history can’t be recovered. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete account', style: 'destructive', onPress: confirmDelete },
+      ]
+    );
+
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
 
@@ -209,6 +255,13 @@ export default function ProfileScreen({ route }: any) {
       <Pressable style={styles.signOutBtn} onPress={handleSignOut}>
         <Feather name="log-out" size={16} color={colors.red} />
         <Text style={styles.signOutText}>Sign out</Text>
+      </Pressable>
+
+      {/* Delete account */}
+      <Pressable style={styles.deleteBtn} onPress={handleDeleteAccount} disabled={deleting}>
+        {deleting
+          ? <ActivityIndicator size="small" color={colors.red} />
+          : <Text style={styles.deleteText}>Delete account</Text>}
       </Pressable>
 
       <Text style={styles.version}>StakeUp v1.0</Text>
@@ -314,6 +367,13 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.red + '33',
   },
   signOutText: { fontSize: 15, fontWeight: '600', color: colors.red },
+
+  // ── Delete account ────────────────────────────────────────────────────────
+  deleteBtn: {
+    alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 14, marginTop: 10, marginHorizontal: 16, minHeight: 44,
+  },
+  deleteText: { fontSize: 14, fontWeight: '600', color: colors.red, opacity: 0.85 },
 
   version: { textAlign: 'center', fontSize: 12, color: colors.tertiary, marginTop: 16 },
 });
