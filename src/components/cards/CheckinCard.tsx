@@ -21,6 +21,7 @@ type Props = {
 export default function CheckinCard({ checkinId, groupId, goals, currentUser }: Props) {
   const [checkin, setCheckin] = useState<Checkin | null>(null);
   const [photoURL, setPhotoURL] = useState<string | null>(null);
+  const [voting, setVoting] = useState(false);
 
   useEffect(() => {
     // Try to find goal context by scanning goals
@@ -77,7 +78,6 @@ export default function CheckinCard({ checkinId, groupId, goals, currentUser }: 
   const pillColor = checkin.status === 'verified' ? colors.green
     : checkin.status === 'rejected' ? colors.red : colors.orange;
 
-  const [voting, setVoting] = useState(false);
   const onVote = async (vote: VoteValue) => {
     if (voting) return;
     setVoting(true);
